@@ -1,11 +1,11 @@
 # only-vision
 
-Sistema de visão para um braço robótico **SCARA**: localiza caixas de remédio sobre uma mesa branca e devolve, em JSON, a posição, o ângulo e o texto escrito em cada caixa.
+Sistema de visão para um braço robótico **SCARA**: localiza caixas de remédio sobre uma mesa branca e devolve, em JSON, o **centro de cada caixa e sua angulação em relação ao centro da câmera**, além do texto escrito nela.
 
 Combina duas coisas:
 
-- **Gemini (IA)** — encontra as caixas na imagem e lê o que está escrito nelas.
-- **OpenCV** — refina a posição de cada caixa com precisão de pixel (centro, tamanho e ângulo), inclusive separando caixas encostadas.
+- **Gemini (IA)** — encontra as caixas e devolve, para cada uma, o **centro**, o **eixo maior** (de onde sai o ângulo), a caixa delimitadora e o **texto** escrito nela.
+- **OpenCV** — mede centro e ângulo de forma independente, com precisão de pixel, e serve de validação da IA (inclusive separando caixas encostadas).
 
 ![Exemplo de detecção](docs/exemplo.jpg)
 
@@ -13,11 +13,15 @@ Combina duas coisas:
 
 1. A câmera é lida continuamente em uma thread (o frame analisado é sempre o mais recente).
 2. Quando a cena fica parada e mudou desde a última análise (ou ao apertar `ESPAÇO`), o frame é enviado ao Gemini.
-3. O Gemini devolve as caixas (`box_2d`), o nome e o texto de cada uma.
-4. O OpenCV segmenta os objetos da mesa, separa caixas encostadas com *watershed* (usando o centro de cada caixa do Gemini como semente) e calcula o retângulo rotacionado com `minAreaRect`.
-5. O resultado é impresso no terminal e salvo em `saida/ultimo_resultado.json` e `saida/ultimo_resultado.jpg`.
+3. O Gemini devolve, para cada caixa: `centro` (ponto), `eixo` (dois pontos nas pontas do eixo maior → ângulo), `box_2d`, `nome` e `texto`.
+   O ângulo é pedido como dois pontos, e não como número, porque modelos de IA localizam pontos muito bem mas costumam errar o sentido de rotação quando o ângulo é pedido diretamente.
+4. O OpenCV segmenta os objetos da mesa, separa caixas encostadas com *watershed* (usando o centro dado pelo Gemini como semente) e mede o retângulo rotacionado com `minAreaRect`.
+5. **Fusão:** se o centro do OpenCV bate com o do Gemini (até 25% do lado menor da caixa), usa-se o valor do OpenCV, que tem precisão de pixel (`fonte: "gemini+opencv"`). Se não bate, ou se o OpenCV não achou a caixa, usa-se o do Gemini (`fonte: "gemini"` / `"gemini (opencv divergiu)"`). Os dois valores sempre ficam no JSON. Diferença de ângulo acima de 15° gera `alerta_angulo`.
+6. O resultado é impresso no terminal e salvo em `saida/ultimo_resultado.json` e `saida/ultimo_resultado.jpg`.
 
-Se o modelo principal do Gemini estiver sobrecarregado, o código tenta automaticamente os modelos reserva (`MODELOS_RESERVA` em `vision_remedios.py`).
+Se o modelo principal do Gemini estiver sobrecarregado ou demorar mais que `GEMINI_TIMEOUT_S` (padrão 90 s), o código tenta automaticamente os modelos reserva (`MODELOS_RESERVA` em `vision_remedios.py`).
+
+Na imagem anotada: eixos x/y no centro da câmera, cruz vermelha = centro final, círculo magenta = centro dado pelo Gemini, seta azul = direção do lado maior (ângulo).
 
 ## Instalação
 
@@ -36,6 +40,7 @@ cp .env.example .env
 ```env
 GEMINI_API_KEY=sua_chave_aqui
 GEMINI_MODEL=gemini-3.8-flash
+GEMINI_TIMEOUT_S=90
 ```
 
 ## Uso
@@ -72,34 +77,55 @@ python vision_remedios.py --mascara          # mostra a máscara do OpenCV (debu
 
 ```json
 {
-  "timestamp": "2026-10-07T09:31:25.550",
+  "timestamp": "2026-10-07T10:05:58.401",
   "modelo": "gemini-robotics-er-2-preview",
   "resolucao": [1920, 1080],
-  "tempo_gemini_s": 23.65,
+  "referencial": "origem no centro da câmera; x -> direita, y -> cima (px); angulo = lado maior da caixa vs eixo x, positivo = anti-horário",
+  "tempo_gemini_s": 12.43,
   "calibrado_mm": false,
   "total": 1,
   "caixas": [
     {
       "id": 1,
-      "nome": "PARACETAMOL",
-      "texto": "PARACETAMOL | 500 mg - 20 comprimidos",
-      "confianca": 0.99,
-      "centro_px": [1300.1, 351.1],
-      "bbox_px": [1077, 165, 1520, 533],
-      "cantos_px": [[1171.9, 538.3], [1072.4, 366.0], [1426.8, 161.4], [1526.3, 333.8]],
-      "tamanho_px": [401.0, 187.9],
-      "angulo_graus": -30.0,
-      "box_2d_gemini": [153, 561, 494, 792],
-      "fonte_posicao": "opencv+gemini"
+      "nome": "AMOXICILINA",
+      "texto": "AMOXICILINA | 500 mg - 20 comprimidos",
+      "confianca": 1.0,
+      "centro": {"x": -59.4, "y": -259.6},
+      "angulo_graus": -12.0,
+      "distancia_centro_px": 266.3,
+      "direcao_graus": -102.9,
+      "fonte": "gemini+opencv",
+      "gemini": {
+        "centro": {"x": -61.4, "y": -257.0},
+        "angulo_graus": -12.6,
+        "eixo": [{"x": -245.8, "y": -218.2}, {"x": 124.8, "y": -301.3}],
+        "box_2d": [620, 362, 856, 574]
+      },
+      "opencv": {"centro": {"x": -59.4, "y": -259.6}, "angulo_graus": -12.0},
+      "divergencia": {"centro_px": 3.3, "angulo_graus": 0.6, "alerta_angulo": false},
+      "tamanho_px": [383.0, 181.0],
+      "centro_imagem_px": [900.6, 799.6],
+      "cantos_imagem_px": [[694.5, 848.3], [732.1, 671.3], [1106.7, 750.9], [1069.1, 927.9]]
     }
   ]
 }
 ```
 
-- **Coordenadas** em pixels, origem no canto superior esquerdo (x → direita, y → baixo).
-- **`angulo_graus`**: ângulo do lado maior da caixa em relação ao eixo x, em [-90, 90); positivo = sentido horário na imagem.
-- **`fonte_posicao`**: `opencv+gemini` quando o OpenCV refinou a posição (mais preciso); `gemini` quando usou só a caixa do Gemini (sem ângulo).
-- **`centro_mm`**: aparece quando existe calibração (ver abaixo).
+### Referencial
+
+Todas as coordenadas principais são **relativas ao centro da câmera** (centro da imagem):
+
+- **`centro`** `{x, y}` em pixels — x positivo para a **direita**, y positivo para **cima**.
+- **`angulo_graus`** — ângulo do **lado maior** da caixa em relação ao eixo x, em [-90, 90); **positivo = anti-horário**. 0° = caixa deitada na horizontal; ±90° = em pé.
+- **`distancia_centro_px`** / **`direcao_graus`** — a mesma posição em coordenadas polares (distância e direção do centro da câmera até a caixa; 0° = direita, 90° = cima).
+
+### Demais campos
+
+- **`fonte`** — de onde veio o valor final: `gemini+opencv` (os dois concordaram; usado o OpenCV), `gemini (opencv divergiu)` ou `gemini`.
+- **`gemini`** / **`opencv`** — o valor que cada um mediu, para comparação.
+- **`divergencia`** — diferença entre os dois (centro em px, ângulo em graus) e `alerta_angulo` se o ângulo divergir mais de 15°.
+- **`centro_imagem_px`** / **`cantos_imagem_px`** — posição na imagem (origem no canto superior esquerdo, y para baixo), útil para desenhar.
+- **`centro_mm`** — aparece quando existe calibração (ver abaixo).
 
 ## Calibração para milímetros
 
