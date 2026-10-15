@@ -100,6 +100,8 @@ class Camera:
         self.cap = cv2.VideoCapture(indice, backend)
         if not self.cap.isOpened():
             raise RuntimeError(f"Não foi possível abrir a câmera {indice}")
+        # MJPG: webcams USB (ex.: Logitech C920) só entregam 1080p fluido comprimido.
+        self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, largura)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, altura)
         self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
@@ -228,9 +230,9 @@ def px_para_mm(H, x, y):
 
 # --------------------------------------------------------------------------- Gemini
 
-# Usados em ordem quando o modelo principal está sobrecarregado/indisponível.
-# gemini-robotics-er é o modelo do Google voltado para localização de objetos para robôs.
-MODELOS_RESERVA = ["gemini-robotics-er-2-preview", "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash"]
+# Usados em ordem quando o modelo principal (padrão: gemini-robotics-er, voltado para
+# localização de objetos para robôs) está sobrecarregado/indisponível.
+MODELOS_RESERVA = ["gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash"]
 
 
 class AnalisadorGemini:
@@ -563,9 +565,9 @@ def rodar_camera(args):
 
 def main():
     ap = argparse.ArgumentParser(description="Localiza caixas de remédio (OpenCV + Gemini)")
-    ap.add_argument("--camera", type=int, default=0)
+    ap.add_argument("--camera", type=int, default=1)
     ap.add_argument("--imagem", help="analisa uma imagem em vez da câmera")
-    ap.add_argument("--modelo", default=os.getenv("GEMINI_MODEL", "gemini-3.8-flash"))
+    ap.add_argument("--modelo", default=os.getenv("GEMINI_MODEL", "gemini-robotics-er-2-preview"))
     ap.add_argument("--largura", type=int, default=1920)
     ap.add_argument("--altura", type=int, default=1080)
     ap.add_argument("--conf", type=float, default=0.5, help="confiança mínima do Gemini")

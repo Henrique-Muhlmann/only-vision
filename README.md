@@ -39,22 +39,22 @@ cp .env.example .env
 
 ```env
 GEMINI_API_KEY=sua_chave_aqui
-GEMINI_MODEL=gemini-3.8-flash
+GEMINI_MODEL=gemini-robotics-er-2-preview
 GEMINI_TIMEOUT_S=90
 ```
 
 ## Uso
 
 ```bash
-python vision_remedios.py                    # câmera 0
-python vision_remedios.py --camera 1         # outra câmera
+python vision_remedios.py                    # câmera 1 (padrão)
+python vision_remedios.py --camera 0         # outra câmera
 python vision_remedios.py --imagem foto.jpg  # analisa uma imagem e sai
 python vision_remedios.py --mascara          # mostra a máscara do OpenCV (debug)
 ```
 
 | Opção | Padrão | Descrição |
 |---|---|---|
-| `--camera` | `0` | índice da câmera |
+| `--camera` | `1` | índice da câmera (1 = câmera externa; 0 costuma ser a do notebook) |
 | `--imagem` | — | analisa um arquivo em vez da câmera |
 | `--modelo` | `GEMINI_MODEL` do `.env` | modelo Gemini |
 | `--largura` / `--altura` | `1920` / `1080` | resolução de captura |
@@ -142,6 +142,32 @@ Com o arquivo presente, cada caixa passa a ter `centro_mm`. A ideia é gerar a `
 - **Câmera** a ~80–90 cm, apontada para baixo, com foco e exposição **manuais/fixos**.
 - **Iluminação** branca neutra/fria (**5000–6500 K**, **IRC ≥ 90**), **difusa** (softbox ou difusor leitoso). Duas fontes a ~45° em lados opostos ou um ring light ao redor da câmera eliminam praticamente todas as sombras. Evite luz colorida — distorce as cores das embalagens e prejudica a leitura do texto.
 - Para caixas com acabamento brilhante, um **filtro polarizador** na lente reduz reflexos.
+
+## Modelos e latência
+
+| Ordem | Modelo | Observação |
+|---|---|---|
+| 1 | `GEMINI_MODEL` (padrão `gemini-robotics-er-2-preview`) | principal — modelo do Google voltado a localização de objetos para robôs |
+| 2 | `gemini-3.8-flash` | reserva |
+| 3+ | `gemini-3.7-flash`, `gemini-3.6-flash`, `gemini-3.5-flash` | reservas |
+
+Cada chamada tem limite de `GEMINI_TIMEOUT_S` segundos; em erro (404/429/5xx) ou timeout, passa para o próximo modelo. Nos testes, uma análise levou de **12 a 100 s**, dependendo da carga da API — o sistema prioriza precisão, não velocidade. O campo `modelo` do JSON mostra qual modelo respondeu.
+
+## Status dos testes
+
+| Item | Status |
+|---|---|
+| Modo `--imagem` com Gemini real | ✅ testado (imagem sintética, 4 caixas, 2 encostadas, giradas 0°, +30°, −12°) |
+| Centro (Gemini vs OpenCV vs real) | ✅ diferença de 1–3 px |
+| Ângulo (Gemini vs OpenCV vs real) | ✅ diferença ≤ 0,6° |
+| Leitura do texto | ✅ |
+| Modo câmera ao vivo | ⏳ ainda não testado com câmera e caixas reais |
+
+## Próximos passos
+
+- [ ] Testar com a câmera real, as caixas reais e a iluminação definitiva (ajustar limiares da máscara se necessário).
+- [ ] Calibração com tabuleiro xadrez: correção de distorção da lente (`cv2.calibrateCamera`) e homografia pixel → mm do robô (`calibracao.json`).
+- [ ] Enviar `centro_mm` + `angulo_graus` para o controlador do SCARA.
 
 ## Estrutura
 
